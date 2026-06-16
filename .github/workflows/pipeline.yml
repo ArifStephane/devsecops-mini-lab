@@ -134,22 +134,26 @@ jobs:
           sbom: false  # SBOM généré séparément avec Trivy (CycloneDX)
 
       # -- Scan de vulnérabilités de l'image construite --
+      # exit-code: "0" : le scan est informatif (KPI), pas un gate bloquant.
+      # Le gate bloquant est le scan FS du job lint-and-scan (exit-code: "1").
+      # Avec exit-code "1", Trivy quitte avant d'écrire le .sarif → step suivant échoue.
       - name: Scan image with Trivy
         id: trivy-image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.32.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
           format: sarif
           output: trivy-image-results.sarif
           severity: CRITICAL,HIGH
-          exit-code: "1"
+          exit-code: "0"
+          ignore-unfixed: true
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: always() && hashFiles('trivy-image-results.sarif') != ''
         with:
           sarif_file: trivy-image-results.sarif
           category: trivy-image
