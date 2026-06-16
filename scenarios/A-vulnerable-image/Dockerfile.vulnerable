@@ -1,0 +1,32 @@
+# =============================================================================
+# Dockerfile.vulnerable — Image volontairement vulnérable pour le Scénario A
+#
+# Embarque Log4j 2.14.1 (CVE-2021-44228, CVSS 10.0)
+# Usage : docker build -f Dockerfile.vulnerable -t target-api:vulnerable .
+#
+# AVERTISSEMENT : Image construite exclusivement à des fins de démonstration
+# dans un environnement de laboratoire isolé. Ne jamais déployer en production.
+# =============================================================================
+
+FROM eclipse-temurin:17-jre-alpine
+
+LABEL org.opencontainers.image.title="target-api-vulnerable"
+LABEL org.opencontainers.image.description="Image de test CVE-2021-44228 (Log4Shell) — lab uniquement"
+LABEL lab.scenario="A"
+LABEL lab.cve="CVE-2021-44228"
+LABEL lab.cvss="10.0"
+
+WORKDIR /app
+
+# Téléchargement de log4j-core 2.14.1 (version affectée par Log4Shell)
+# Cette version est disponible dans les archives Maven Central
+ADD https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar \
+    /app/log4j-core-2.14.1.jar
+
+ADD https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-api/2.14.1/log4j-api-2.14.1.jar \
+    /app/log4j-api-2.14.1.jar
+
+# Application stub (démonstration uniquement — pas de code Log4Shell réel)
+COPY app-stub.jar /app/app.jar
+
+ENTRYPOINT ["java", "-cp", "/app/*", "com.example.AppStub"]

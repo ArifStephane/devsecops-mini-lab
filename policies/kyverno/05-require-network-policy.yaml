@@ -1,0 +1,45 @@
+# =============================================================================
+# 05-require-network-policy.yaml
+# Politique Kyverno : imposition de NetworkPolicy par défaut
+#
+# Hypothèse testée : H3
+# Référence : CIS Kubernetes Benchmark 5.3.2
+# =============================================================================
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-network-policy
+  annotations:
+    policies.kyverno.io/title: "Génération automatique de NetworkPolicy"
+    policies.kyverno.io/category: "Network Security"
+    policies.kyverno.io/severity: "medium"
+    policies.kyverno.io/description: >
+      Génère automatiquement une NetworkPolicy de type deny-all pour chaque
+      nouveau namespace applicatif. Cette politique doit ensuite être affinée
+      par l'équipe applicative pour autoriser uniquement les flux légitimes.
+spec:
+  rules:
+    # Génération automatique d'une NetworkPolicy deny-all pour les nouveaux namespaces
+    - name: generate-default-deny-netpol
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  env: lab
+      generate:
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: default-deny-all
+        namespace: "{{request.object.metadata.name}}"
+        synchronize: true
+        data:
+          spec:
+            podSelector: {}   # s'applique à tous les pods du namespace
+            policyTypes:
+              - Ingress
+              - Egress
+            # Aucune règle ingress/egress = tout le trafic est bloqué par défaut

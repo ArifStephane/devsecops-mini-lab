@@ -1,0 +1,150 @@
+# =============================================================================
+# deployment.yaml — Déploiement de l'application cible
+# IMAGE_PLACEHOLDER est remplacé par le pipeline CI/CD (sed)
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: target-api
+  namespace: app
+  labels:
+    app: target-api
+    version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: target-api
+  template:
+    metadata:
+      labels:
+        app: target-api
+        version: "1.0.0"
+    spec:
+      # Contexte de sécurité au niveau du pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: target-api
+          image: IMAGE_PLACEHOLDER
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+
+          # Contexte de sécurité au niveau du conteneur
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+
+          # Variables d'environnement via Secret
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: database-url
+
+          # Limites de ressources
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+
+          # Probes
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          # Volume temporaire pour /tmp (root filesystem en lecture seule)
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+      # Pas de montage du token SA par défaut
+      automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: target-api
+  namespace: app
+spec:
+  selector:
+    app: target-api
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+  namespace: app
+type: Opaque
+stringData:
+  database-url: "postgresql://appuser:apppassword@db-service.app:5432/appdb"
+---
+# NetworkPolicy : restriction du trafic entrant/sortant
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: target-api-netpol
+  namespace: app
+spec:
+  podSelector:
+    matchLabels:
+      app: target-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+        - podSelector: {}  # pods du même namespace
+      ports:
+        - port: 8000
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53  # DNS

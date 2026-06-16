@@ -1,0 +1,146 @@
+# =============================================================================
+# custom-rules.yaml — Règles Falco personnalisées pour le mini-lab
+#
+# Ces règles complètent le ruleset par défaut de Falco pour couvrir
+# des comportements spécifiques à l'environnement de laboratoire.
+# Chaque règle est annotée avec la technique MITRE ATT&CK for Containers.
+#
+# Hypothèse testée : H2
+# =============================================================================
+
+- list: lab_app_containers
+  items: [target-api, postgres]
+
+- list: allowed_admin_binaries
+  items: [kubectl, helm, k3d]
+
+# ---------------------------------------------------------------------------
+# Règle 1 : Shell interactif dans un conteneur applicatif
+# Scénario C — MITRE T1609 Container Administration Command
+# ---------------------------------------------------------------------------
+- rule: Lab - Shell interactif dans conteneur applicatif
+  desc: >
+    Détecte l'ouverture d'un shell interactif (bash, sh, zsh, ash) dans
+    un conteneur de l'application cible. Ce comportement est typique d'une
+    intrusion ou d'un accès non autorisé via kubectl exec.
+  condition: >
+    spawned_process and
+    container and
+    container.name in (lab_app_containers) and
+    proc.name in (shell_binaries) and
+    proc.tty != 0 and
+    not proc.pname in (known_shell_spawn_binaries)
+  output: >
+    Shell interactif détecté dans conteneur applicatif
+    (proc=%proc.name pid=%proc.pid user=%user.name container=%container.name
+     image=%container.image.repository:%container.image.tag
+     cmd=%proc.cmdline tty=%proc.tty)
+  priority: CRITICAL
+  tags: [lab, mitre_execution, T1609, container_escape]
+
+# ---------------------------------------------------------------------------
+# Règle 2 : Tentative d'accès à /proc de l'hôte depuis un conteneur
+# Scénario D — MITRE T1611 Escape to Host
+# ---------------------------------------------------------------------------
+- rule: Lab - Accès /proc hôte depuis conteneur
+  desc: >
+    Détecte une tentative d'accès au système de fichiers /proc du nœud hôte
+    depuis un conteneur, comportement évocateur d'un container escape.
+  condition: >
+    open_read and
+    container and
+    fd.name startswith /proc/1/root and
+    not proc.name in (known_kernel_binaries)
+  output: >
+    Tentative accès /proc hôte depuis conteneur (container escape simulé)
+    (proc=%proc.name pid=%proc.pid user=%user.name container=%container.name
+     file=%fd.name image=%container.image.repository)
+  priority: CRITICAL
+  tags: [lab, mitre_privilege_escalation, T1611, container_escape]
+
+# ---------------------------------------------------------------------------
+# Règle 3 : Écriture dans un répertoire système depuis un conteneur
+# Scénario D — MITRE T1611 Escape to Host
+# ---------------------------------------------------------------------------
+- rule: Lab - Écriture dans répertoire système hôte
+  desc: >
+    Détecte une tentative d'écriture dans /etc, /bin, /usr ou /lib
+    depuis un conteneur de l'application, qui pourrait indiquer une
+    tentative de persistance ou d'altération du système hôte.
+  condition: >
+    open_write and
+    container and
+    container.name in (lab_app_containers) and
+    (fd.name startswith /etc or
+     fd.name startswith /bin or
+     fd.name startswith /usr or
+     fd.name startswith /lib) and
+    not proc.name in (package_mgmt_binaries)
+  output: >
+    Écriture suspecte dans répertoire système depuis conteneur applicatif
+    (proc=%proc.name pid=%proc.pid container=%container.name
+     file=%fd.name user=%user.name)
+  priority: ERROR
+  tags: [lab, mitre_persistence, T1611, container_escape]
+
+# ---------------------------------------------------------------------------
+# Règle 4 : Déploiement d'un nouveau conteneur depuis un conteneur existant
+# Scénario — MITRE T1610 Deploy Container
+# ---------------------------------------------------------------------------
+- rule: Lab - Invocation de Docker/containerd depuis conteneur
+  desc: >
+    Détecte l'invocation des binaires Docker ou containerd depuis l'intérieur
+    d'un conteneur, indicateur potentiel d'une compromission permettant
+    le déploiement d'un conteneur supplémentaire (T1610).
+  condition: >
+    spawned_process and
+    container and
+    proc.name in (docker, containerd, nerdctl, crictl, podman) and
+    not k8s.ns.name in (kube-system, falco)
+  output: >
+    Binaire container runtime invoqué depuis un conteneur
+    (proc=%proc.name pid=%proc.pid container=%container.name
+     image=%container.image.repository cmd=%proc.cmdline)
+  priority: CRITICAL
+  tags: [lab, mitre_execution, T1610, deploy_container]
+
+# ---------------------------------------------------------------------------
+# Règle 5 : Connexion réseau sortante inhabituelle depuis l'application
+# MITRE T1071 — Application Layer Protocol (Command & Control)
+# ---------------------------------------------------------------------------
+- rule: Lab - Connexion sortante inhabituelle depuis application
+  desc: >
+    Détecte une connexion réseau sortante vers une adresse externe
+    depuis les conteneurs applicatifs, en dehors des communications
+    légitimes avec la base de données (port 5432).
+  condition: >
+    outbound and
+    container and
+    container.name = "target-api" and
+    not (fd.sport in (5432, 8000)) and
+    not fd.sip.name in (rfc_1918_addresses) and
+    fd.typechar = 4
+  output: >
+    Connexion réseau sortante suspecte depuis l'application cible
+    (proc=%proc.name container=%container.name
+     src=%fd.cip:%fd.cport dst=%fd.sip:%fd.sport)
+  priority: WARNING
+  tags: [lab, mitre_command_and_control, T1071, network]
+
+# ---------------------------------------------------------------------------
+# Règle 6 : Modification de crontab ou tâche planifiée
+# MITRE T1053 — Scheduled Task/Job (Persistence)
+# ---------------------------------------------------------------------------
+- rule: Lab - Tentative de création de tâche planifiée
+  desc: >
+    Détecte toute tentative de modification ou création de crontab
+    depuis un conteneur, indicateur de tentative de persistance.
+  condition: >
+    spawned_process and
+    container and
+    proc.name = crontab
+  output: >
+    Tentative de modification de crontab dans un conteneur
+    (proc=%proc.name pid=%proc.pid container=%container.name user=%user.name)
+  priority: WARNING
+  tags: [lab, mitre_persistence, T1053]

@@ -1,0 +1,65 @@
+# =============================================================================
+# 04-restrict-capabilities.yaml
+# Politique Kyverno : restriction des Linux capabilities
+#
+# Hypothèse testée : H3
+# NSA/CISA Kubernetes Hardening Guide — Section 4.2
+# =============================================================================
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-capabilities
+  annotations:
+    policies.kyverno.io/title: "Restriction des Linux capabilities"
+    policies.kyverno.io/category: "Pod Security"
+    policies.kyverno.io/severity: "high"
+    policies.kyverno.io/description: >
+      Exige que les conteneurs suppriment toutes les capabilities (drop: ALL)
+      et n'ajoutent aucune capability dangereuse. Autorise uniquement
+      NET_BIND_SERVICE si nécessaire pour les applications web sur port < 1024.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-drop-all
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - app
+      validate:
+        message: "Tous les conteneurs doivent supprimer toutes les capabilities (capabilities.drop: [ALL])."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  capabilities:
+                    drop:
+                      - ALL
+
+    - name: deny-dangerous-capabilities
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Les capabilities suivantes sont interdites : SYS_ADMIN, SYS_PTRACE, NET_ADMIN, NET_RAW, SYS_MODULE."
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.containers[].securityContext.capabilities.add[] | contains(@, 'SYS_ADMIN') }}"
+                operator: Equals
+                value: true
+              - key: "{{ request.object.spec.containers[].securityContext.capabilities.add[] | contains(@, 'SYS_PTRACE') }}"
+                operator: Equals
+                value: true
+              - key: "{{ request.object.spec.containers[].securityContext.capabilities.add[] | contains(@, 'NET_ADMIN') }}"
+                operator: Equals
+                value: true
+              - key: "{{ request.object.spec.containers[].securityContext.capabilities.add[] | contains(@, 'SYS_MODULE') }}"
+                operator: Equals
+                value: true

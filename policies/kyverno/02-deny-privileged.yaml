@@ -1,0 +1,71 @@
+# =============================================================================
+# 02-deny-privileged.yaml
+# Politique Kyverno : rejet des conteneurs privileged
+#
+# Hypothèse testée : H3
+# Scénario couvert : E (pod avec configuration insecure)
+# MITRE ATT&CK    : T1611 — Escape to Host
+# =============================================================================
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-privileged-containers
+  annotations:
+    policies.kyverno.io/title: "Interdiction des conteneurs privileged"
+    policies.kyverno.io/category: "Pod Security"
+    policies.kyverno.io/severity: "critical"
+    policies.kyverno.io/description: >
+      Interdit le déploiement de conteneurs avec securityContext.privileged: true,
+      hostPID: true, hostIPC: true, ou le montage de /var/run/docker.sock.
+      Ces configurations permettent une évasion vers l'hôte (container escape).
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    # Règle 1 : interdire privileged: true
+    - name: deny-privileged-flag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Les conteneurs privileged sont interdits (risque T1611 Escape to Host)."
+        pattern:
+          spec:
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): "false"
+            containers:
+              - =(securityContext):
+                  =(privileged): "false"
+
+    # Règle 2 : interdire hostPID et hostIPC
+    - name: deny-host-pid-ipc
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "hostPID et hostIPC sont interdits."
+        pattern:
+          spec:
+            =(hostPID): "false"
+            =(hostIPC): "false"
+
+    # Règle 3 : interdire le montage de docker.sock
+    - name: deny-docker-sock-mount
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Le montage de /var/run/docker.sock est interdit."
+        pattern:
+          spec:
+            =(volumes):
+              - =(hostPath):
+                  =(path): "!/var/run/docker.sock"

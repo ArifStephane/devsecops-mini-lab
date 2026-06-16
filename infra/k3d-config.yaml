@@ -1,0 +1,53 @@
+# =============================================================================
+# k3d-config.yaml — Configuration du cluster de laboratoire
+#
+# Topologie : 1 nœud de contrôle + 2 nœuds de calcul
+# Réseau : exposition du port 80/443 pour Ingress local
+# =============================================================================
+
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  name: devsecops-lab
+
+# Topologie du cluster
+servers: 1      # nœud control-plane
+agents: 2       # nœuds de calcul
+
+# Exposition des ports pour accès local
+ports:
+  - port: 8080:80   # HTTP
+    nodeFilters:
+      - loadbalancer
+  - port: 8443:443  # HTTPS
+    nodeFilters:
+      - loadbalancer
+
+# Registre de cache pour accélérer les pulls
+registries:
+  config: |
+    mirrors:
+      "docker.io":
+        endpoint:
+          - "https://registry-1.docker.io"
+
+# Options kubeAPI
+kubeAPI:
+  hostIP: "0.0.0.0"
+  hostPort: "6443"
+
+# Options des nœuds
+options:
+  k3d:
+    wait: true
+    timeout: "60s"
+  k3s:
+    extraArgs:
+      - arg: --disable=traefik
+        nodeFilters:
+          - server:*
+      # Active les profils seccomp par défaut
+      - arg: --kube-apiserver-arg=--profiling=false
+        nodeFilters:
+          - server:*

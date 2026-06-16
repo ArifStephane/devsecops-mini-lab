@@ -1,0 +1,48 @@
+# =============================================================================
+# 03-deny-root.yaml
+# Politique Kyverno : interdiction des conteneurs s'exécutant en root
+#
+# Hypothèse testée : H3
+# Scénario couvert : E (pod avec configuration insecure)
+# CIS Benchmark   : 5.2.6 — Do not admit root containers
+# =============================================================================
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: deny-root-containers
+  annotations:
+    policies.kyverno.io/title: "Interdiction des conteneurs root"
+    policies.kyverno.io/category: "Pod Security"
+    policies.kyverno.io/severity: "high"
+    policies.kyverno.io/description: >
+      Exige que tous les conteneurs s'exécutent avec un utilisateur non-root.
+      Les pods sans runAsNonRoot: true ou avec runAsUser: 0 sont rejetés.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-runAsNonRoot
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - app
+      validate:
+        message: "Les conteneurs doivent s'exécuter en tant qu'utilisateur non-root (runAsNonRoot: true ou runAsUser > 0)."
+        anyPattern:
+          # Pattern 1 : runAsNonRoot au niveau du pod
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          # Pattern 2 : runAsNonRoot au niveau du conteneur
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true
+          # Pattern 3 : UID explicitement non-root
+          - spec:
+              securityContext:
+                runAsUser: ">0"

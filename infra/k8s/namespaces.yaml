@@ -1,0 +1,18 @@
+---
+# Namespace applicatif
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app
+  labels:
+    name: app
+    env: lab
+---
+# Namespace monitoring
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
+    env: lab

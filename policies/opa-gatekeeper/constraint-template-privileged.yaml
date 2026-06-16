@@ -1,0 +1,69 @@
+# =============================================================================
+# OPA Gatekeeper — comparatif partiel avec Kyverno
+#
+# ConstraintTemplate équivalent à la politique Kyverno 02-deny-privileged
+# Utilisé pour le comparatif analytique de la Partie III du mémoire.
+#
+# Différence clé : OPA/Rego vs Kyverno/CEL — complexité de la politique
+# identique en résultat mais différente en expressivité syntaxique.
+# =============================================================================
+
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8sdenyprivileged
+  annotations:
+    description: >
+      Interdiction des conteneurs avec securityContext.privileged: true.
+      Équivalent OPA Gatekeeper de la politique Kyverno 02-deny-privileged.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sDenyPrivileged
+
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sdenyprivileged
+
+        # Violation si un conteneur init est privileged
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.initContainers[_]
+          container.securityContext.privileged == true
+          msg := sprintf("Le conteneur init '%v' est privileged : risque d'évasion vers l'hôte (T1611).", [container.name])
+        }
+
+        # Violation si un conteneur standard est privileged
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          container.securityContext.privileged == true
+          msg := sprintf("Le conteneur '%v' est privileged : risque d'évasion vers l'hôte (T1611).", [container.name])
+        }
+
+        # Violation si hostPID est activé
+        violation[{"msg": msg}] {
+          input.review.object.spec.hostPID == true
+          msg := "hostPID: true est interdit."
+        }
+
+        # Violation si docker.sock est monté
+        violation[{"msg": msg}] {
+          volume := input.review.object.spec.volumes[_]
+          volume.hostPath.path == "/var/run/docker.sock"
+          msg := "Le montage de /var/run/docker.sock est interdit."
+        }
+---
+# Constraint : activation de la ConstraintTemplate ci-dessus
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sDenyPrivileged
+metadata:
+  name: deny-privileged-containers-gatekeeper
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+    namespaces:
+      - app
+  enforcementAction: deny

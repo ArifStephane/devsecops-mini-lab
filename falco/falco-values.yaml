@@ -1,0 +1,52 @@
+# =============================================================================
+# falco-values.yaml — Configuration Helm de Falco pour le mini-lab
+# =============================================================================
+
+# Activation du driver eBPF moderne (recommandé pour k3d)
+driver:
+  kind: modern_ebpf
+
+# Activation de Falcosidekick pour le routage des alertes
+falcosidekick:
+  enabled: true
+  replicaCount: 1
+  config:
+    # Routage vers Loki
+    loki:
+      hostport: "http://loki.monitoring:3100"
+      minimumpriority: "warning"
+
+    # Routage vers Slack/Mattermost (optionnel — renseigner le webhook)
+    # slack:
+    #   webhookurl: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+    #   minimumpriority: "critical"
+
+    # Interface web Falcosidekick UI
+    webui:
+      enabled: true
+
+# Chargement des règles personnalisées via ConfigMap
+customRules:
+  custom-rules.yaml: |
+    # Les règles sont chargées depuis le ConfigMap falco-custom-rules
+    # Voir falco/custom-rules.yaml
+
+# Configuration générale
+falco:
+  # Niveau de log minimum pour les alertes
+  priority: warning
+
+  # Activation de la sortie vers stdout (pour kubectl logs)
+  stdout_output:
+    enabled: true
+
+  # Activation de la sortie HTTP (Falcosidekick)
+  http_output:
+    enabled: true
+    url: "http://falco-falcosidekick:2801"
+
+  # Métriques Prometheus
+  metrics:
+    enabled: true
+    interval: 15s
+    output_rule: true

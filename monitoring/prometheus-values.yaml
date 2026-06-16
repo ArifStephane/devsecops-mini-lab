@@ -1,0 +1,42 @@
+# =============================================================================
+# prometheus-values.yaml — kube-prometheus-stack pour le mini-lab
+# =============================================================================
+
+grafana:
+  enabled: true
+  adminPassword: "lab-admin-2024"  # Modifier en production
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: "default"
+          orgId: 1
+          folder: "DevSecOps Lab"
+          type: file
+          disableDeletion: false
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # Dashboard Falco pré-configuré
+  dashboards:
+    default:
+      falco-dashboard:
+        gnetId: 11914  # Dashboard Falco officiel depuis grafana.com
+        revision: 1
+        datasource: Prometheus
+
+prometheus:
+  prometheusSpec:
+    # Rétention des métriques (48h suffisent pour le lab)
+    retention: 48h
+    # Scrape des métriques Falco
+    additionalScrapeConfigs:
+      - job_name: "falco"
+        static_configs:
+          - targets: ["falco.falco:8765"]
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+
+alertmanager:
+  enabled: false  # Simplifié pour le lab

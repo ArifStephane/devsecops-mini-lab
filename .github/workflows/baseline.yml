@@ -1,0 +1,72 @@
+# =============================================================================
+# baseline.yml — pipeline sans aucun contrôle de sécurité
+# Utilisé pour la Phase 2 (mesure de référence / baseline)
+#
+# Ce workflow constitue la configuration de référence (scénario sans contrôle)
+# définie dans le protocole expérimental. Il mesure la durée du pipeline
+# et simule un déploiement sans gating de sécurité.
+# =============================================================================
+
+name: Baseline Pipeline (No Security Controls)
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_label:
+        description: "Label pour cette exécution (ex: baseline-run-01)"
+        required: true
+        default: "baseline-run"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/target-api-baseline
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push-no-controls:
+    name: Build & Push (No Security Controls)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Record pipeline start timestamp
+        run: echo "PIPELINE_START=$(date -u +%s)" >> $GITHUB_ENV
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image (no lint, no scan, no sign)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:baseline-${{ github.sha }}
+
+      - name: Record pipeline end timestamp
+        run: |
+          PIPELINE_END=$(date -u +%s)
+          DURATION=$(( $PIPELINE_END - $PIPELINE_START ))
+          echo "Pipeline duration (no controls): ${DURATION} seconds"
+          echo "{
+            \"run_label\": \"${{ github.event.inputs.run_label }}\",
+            \"sha\": \"${{ github.sha }}\",
+            \"mode\": \"baseline\",
+            \"duration_seconds\": ${DURATION},
+            \"ts\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+          }" > pipeline-metrics-${{ github.sha }}.json
+
+      - name: Upload pipeline metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-metrics-${{ github.sha }}
+          path: pipeline-metrics-${{ github.sha }}.json

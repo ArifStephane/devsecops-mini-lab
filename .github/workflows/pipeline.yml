@@ -1,0 +1,254 @@
+# =============================================================================
+# pipeline.yml — CI/CD sécurisé pour le mini-lab DevSecOps
+#
+# Étapes :
+#   1. Lint Dockerfile (Hadolint)
+#   2. Build image Docker
+#   3. Scan de vulnérabilités (Trivy — modes image et fs)
+#   4. Génération du SBOM (CycloneDX via Trivy)
+#   5. Signature de l'image (Cosign keyless via OIDC GitHub)
+#   6. Push vers GitHub Container Registry (GHCR)
+#   7. Déploiement sur k3d (kubectl apply)
+#
+# Variables à configurer dans GitHub Secrets / Variables :
+#   REGISTRY : ghcr.io
+#   IMAGE_NAME : ${{ github.repository }}/target-api
+# =============================================================================
+
+name: DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/target-api
+
+# Permissions nécessaires pour Cosign keyless (OIDC) et GHCR
+permissions:
+  contents: read
+  packages: write
+  id-token: write   # requis pour la signature Cosign via OIDC
+  security-events: write  # requis pour upload SARIF vers GitHub Security
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1 : Lint et scan du code source
+  # ---------------------------------------------------------------------------
+  lint-and-scan:
+    name: Lint & Source Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Lint Dockerfile with Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: app/Dockerfile
+          failure-threshold: warning
+          format: sarif
+          output-file: hadolint-results.sarif
+
+      - name: Upload Hadolint results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: hadolint-results.sarif
+          category: hadolint
+
+      - name: Scan filesystem with Trivy (SCA)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"   # bloque le pipeline si CVE critique
+
+      - name: Upload Trivy fs results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-fs
+
+  # ---------------------------------------------------------------------------
+  # Job 2 : Build, scan d'image, SBOM, signature, push
+  # ---------------------------------------------------------------------------
+  build-sign-push:
+    name: Build, Sign & Push
+    runs-on: ubuntu-latest
+    needs: lint-and-scan
+
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-ref: ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -- Authentification au registre --
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # -- Extraction des métadonnées OCI --
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # -- Build multi-platform avec provenance --
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: false  # SBOM généré séparément avec Trivy (CycloneDX)
+
+      # -- Scan de vulnérabilités de l'image construite --
+      - name: Scan image with Trivy
+        id: trivy-image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: sarif
+          output: trivy-image-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Trivy image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image-results.sarif
+          category: trivy-image
+
+      # -- Mesure du nombre de vulnérabilités (pour KPI) --
+      - name: Export Trivy results as JSON (KPI)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Trivy JSON results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-${{ github.sha }}
+          path: trivy-results.json
+
+      # -- Génération du SBOM au format CycloneDX --
+      - name: Generate SBOM with Trivy (CycloneDX)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: cyclonedx
+          output: sbom.cdx.json
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload SBOM as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cdx.json
+
+      # -- Signature de l'image avec Cosign (keyless via OIDC GitHub) --
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign container image with Cosign (keyless)
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+
+      # -- Attestation du SBOM via Cosign --
+      - name: Attach SBOM attestation with Cosign
+        run: |
+          cosign attest --yes \
+            --predicate sbom.cdx.json \
+            --type cyclonedx \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+
+  # ---------------------------------------------------------------------------
+  # Job 3 : Déploiement sur le cluster k3d
+  # (En CI, ce job simule le déploiement ; en environnement local,
+  #  exécuter infra/deploy.sh directement)
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy to k3d
+    runs-on: ubuntu-latest
+    needs: build-sign-push
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Deploy to cluster
+        run: |
+          # Mise à jour du tag d'image dans le manifest de déploiement
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-sign-push.outputs.image-digest }}"
+          sed -i "s|IMAGE_PLACEHOLDER|${IMAGE_TAG}|g" infra/k8s/deployment.yaml
+          kubectl apply -f infra/k8s/
+          kubectl rollout status deployment/target-api -n app --timeout=120s
+        env:
+          KUBECONFIG: ${{ secrets.KUBECONFIG }}
+
+      # -- Mesure du Lead Time (DORA KPI) --
+      - name: Record deployment timestamp (DORA Lead Time)
+        run: |
+          echo "DEPLOY_TS=$(date -u +%s)" >> $GITHUB_ENV
+          echo "COMMIT_TS=$(git log -1 --format=%ct ${{ github.sha }})" >> $GITHUB_ENV
+
+      - name: Export Lead Time metric
+        run: |
+          LEAD_TIME=$(( $DEPLOY_TS - $COMMIT_TS ))
+          echo "Lead Time: ${LEAD_TIME} seconds"
+          echo "{\"sha\": \"${{ github.sha }}\", \"lead_time_seconds\": ${LEAD_TIME}, \"ts\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
+            > lead-time-${{ github.sha }}.json
+
+      - name: Upload Lead Time metric
+        uses: actions/upload-artifact@v4
+        with:
+          name: lead-time-${{ github.sha }}
+          path: lead-time-${{ github.sha }}.json
