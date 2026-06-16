@@ -1,0 +1,24 @@
+{
+  "scenario": "E",
+  "timestamp": "2026-06-16T13:15:07Z",
+  "mitre_technique": "T1611",
+  "tests": {
+    "E1_privileged": {
+      "description": "securityContext.privileged: true",
+      "admission_status": "REJECTED",
+      "admission_duration_ms": 249
+    },
+    "E2_hostPID": {
+      "description": "hostPID: true",
+      "admission_status": "REJECTED",
+      "admission_duration_ms": 234
+    },
+    "E3_docker_sock": {
+      "description": "montage /var/run/docker.sock",
+      "admission_status": "REJECTED",
+      "admission_duration_ms": 231
+    }
+  },
+  "all_rejected": true,
+  "hypothesis": "H3"
+}

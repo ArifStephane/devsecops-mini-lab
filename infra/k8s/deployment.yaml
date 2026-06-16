@@ -147,4 +147,7 @@ spec:
     - to:
         - namespaceSelector: {}
       ports:
-        - port: 53  # DNS
+        - port: 53
+          protocol: UDP   # DNS (par défaut Kubernetes ne filtre qu'en TCP)
+        - port: 53
+          protocol: TCP   # DNS over TCP (fallback grandes réponses)

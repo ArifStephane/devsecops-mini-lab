@@ -5,6 +5,11 @@
 # Hypothèse testée : H3
 # Scénario couvert : E (pod avec configuration insecure)
 # MITRE ATT&CK    : T1611 — Escape to Host
+#
+# Note : les namespaces kube-system, monitoring et falco sont exclus
+# car leurs composants (node-exporter, Falco DaemonSet) requièrent
+# légitimement hostPID/hostNetwork pour collecter métriques et événements kernel.
+# La politique est donc ciblée sur les namespaces applicatifs (app, default).
 # =============================================================================
 
 apiVersion: kyverno.io/v1
@@ -30,6 +35,14 @@ spec:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - monitoring
+                - falco
+                - kyverno
       validate:
         message: "Les conteneurs privileged sont interdits (risque T1611 Escape to Host)."
         pattern:
@@ -48,6 +61,14 @@ spec:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - monitoring
+                - falco
+                - kyverno
       validate:
         message: "hostPID et hostIPC sont interdits."
         pattern:
@@ -56,12 +77,18 @@ spec:
             =(hostIPC): "false"
 
     # Règle 3 : interdire le montage de docker.sock
+    # S'applique à tous les namespaces sauf kube-system
     - name: deny-docker-sock-mount
       match:
         any:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
       validate:
         message: "Le montage de /var/run/docker.sock est interdit."
         pattern:

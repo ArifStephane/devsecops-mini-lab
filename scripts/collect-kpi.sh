@@ -22,10 +22,9 @@ log_scenario "=== COLLECTE DES KPI — Configuration : ${CONFIG} ==="
 # ---------------------------------------------------------------------------
 collect_scenario_result() {
     local scenario="$1"
-    local pattern="scenario-${scenario}-*.json"
     local latest
-
-    latest=$(ls -t "${RESULTS_DIR}/${pattern}" 2>/dev/null | head -1)
+    # NOTE : le glob doit rester HORS des guillemets doubles pour être évalué par le shell
+    latest=$(ls -t "${RESULTS_DIR}"/scenario-${scenario}-*.json 2>/dev/null | head -1)
     if [ -n "${latest}" ]; then
         cat "${latest}"
     else
@@ -50,8 +49,8 @@ TOTAL=5
 # Scénario A : CVE détectée ?
 [ "$(echo "${RESULT_A}" | jq -r '.trivy_scan.log4shell_detected // false')" = "true" ] && DETECTED=$((DETECTED + 1))
 
-# Scénario B : Image non signée rejetée ?
-[ "$(echo "${RESULT_B}" | jq -r '.admission.status // "UNKNOWN"')" != "ALLOWED" ] && DETECTED=$((DETECTED + 1))
+# Scénario B : Image non signée rejetée ? (comparaison positive pour éviter les faux positifs sur "UNKNOWN")
+[ "$(echo "${RESULT_B}" | jq -r '.admission.status // "UNKNOWN"')" = "REJECTED" ] && DETECTED=$((DETECTED + 1))
 
 # Scénario C : Shell exec détecté ?
 [ "$(echo "${RESULT_C}" | jq -r '.detection.alert_detected // false')" = "true" ] && DETECTED=$((DETECTED + 1))

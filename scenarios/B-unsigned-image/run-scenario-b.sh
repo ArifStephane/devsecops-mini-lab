@@ -17,10 +17,11 @@ source "$(dirname "$0")/../../scripts/lib/kpi-utils.sh"
 
 SCENARIO="B"
 REGISTRY="${REGISTRY:-ghcr.io}"
-IMAGE_REPO="${IMAGE_REPO:-ArifStephane/devsecops-mini-lab/target-api}"
+# GHCR exige un repo en minuscules
+IMAGE_REPO="${IMAGE_REPO:-arifstephane/devsecops-mini-lab/target-api}"
 IMAGE_TAG="unsigned-$(date +%s)"
 FULL_IMAGE="${REGISTRY}/${IMAGE_REPO}:${IMAGE_TAG}"
-RESULTS_FILE="../../scripts/results/scenario-b-$(date +%Y%m%d-%H%M%S).json"
+RESULTS_FILE="${RESULTS_DIR}/scenario-b-$(date +%Y%m%d-%H%M%S).json"
 
 log_scenario "=== SCÉNARIO B : Image non signée (Supply Chain Compromise) ==="
 
@@ -33,11 +34,13 @@ docker build -t "${FULL_IMAGE}" .
 log_ok "Image construite : ${FULL_IMAGE}"
 
 # ---------------------------------------------------------------------------
-# Étape 2 : Push direct (bypass du pipeline — pas de signature)
+# Étape 2 : Import direct dans k3d (bypass du pipeline — pas de signature)
+# Pour le lab local, on importe sans passer par GHCR (push optionnel)
 # ---------------------------------------------------------------------------
-log_step "Push de l'image sans signature..."
-docker push "${FULL_IMAGE}"
-log_ok "Image poussée vers le registre"
+log_step "Import de l'image dans k3d (sans signature Cosign)..."
+k3d image import "${FULL_IMAGE}" --cluster devsecops-lab 2>/dev/null || \
+    log_warn "Import k3d optionnel — l'admission control sera testé via le nom d'image GHCR"
+log_ok "Image disponible localement : ${FULL_IMAGE}"
 
 # Vérification : aucune attestation de signature ne doit exister
 if cosign verify "${FULL_IMAGE}" \
@@ -56,6 +59,14 @@ fi
 # ---------------------------------------------------------------------------
 log_step "Tentative de déploiement de l'image non signée..."
 
+# Passage temporaire en Enforce pour tester le blocage
+kubectl patch clusterpolicy verify-image-signature \
+    --type=merge \
+    -p '{"spec":{"validationFailureAction":"Enforce","rules":[{"name":"check-image-signature","verifyImages":[{"imageReferences":["ghcr.io/*/target-api*"],"mutateDigest":true,"verifyDigest":true,"required":true,"attestors":[{"count":1,"entries":[{"keyless":{"subject":"https://github.com/ArifStephane/devsecops-mini-lab/.github/workflows/pipeline.yml@refs/heads/main","issuer":"https://token.actions.githubusercontent.com","rekor":{"url":"https://rekor.sigstore.dev"}}}]}]}]}]}}' \
+    2>/dev/null || log_warn "Patch verifyImages impossible — test en mode Audit"
+
+sleep 2
+
 # Génération du manifest de déploiement avec l'image non signée
 cat > /tmp/pod-unsigned.yaml <<MANIFEST
 apiVersion: v1
@@ -72,17 +83,17 @@ spec:
   restartPolicy: Never
 MANIFEST
 
-T_ADMIT_START=$(date +%s%3N)
+T_ADMIT_START=$(date_ms)
 ADMIT_RESULT=$(kubectl apply -f /tmp/pod-unsigned.yaml 2>&1 || true)
-T_ADMIT_END=$(date +%s%3N)
+T_ADMIT_END=$(date_ms)
 ADMIT_DURATION=$(( T_ADMIT_END - T_ADMIT_START ))
 
 if echo "${ADMIT_RESULT}" | grep -qiE "blocked|denied|verifyImages|signature"; then
     log_ok "✓ DÉPLOIEMENT REJETÉ par Kyverno en ${ADMIT_DURATION} ms"
     log_ok "  Message : ${ADMIT_RESULT}"
     ADMISSION_STATUS="REJECTED"
-    # Extraction du message de rejet pour le résultat
-    REJECT_REASON=$(echo "${ADMIT_RESULT}" | grep -oP 'error.*' | head -1 || echo "${ADMIT_RESULT}")
+    # Extraction du message de rejet pour le résultat (grep -oE compatible macOS)
+    REJECT_REASON=$(echo "${ADMIT_RESULT}" | grep -oE 'error.*' | head -1 || echo "${ADMIT_RESULT}")
 else
     log_err "✗ DÉPLOIEMENT AUTORISÉ (inattendu) — la politique verifyImages n'a pas fonctionné"
     ADMISSION_STATUS="ALLOWED"
@@ -91,6 +102,12 @@ fi
 
 # Nettoyage
 kubectl delete pod test-unsigned-image --namespace app 2>/dev/null || true
+
+# Repasser en Audit après le test
+kubectl patch clusterpolicy verify-image-signature \
+    --type=merge \
+    -p '{"spec":{"validationFailureAction":"Audit","rules":[{"name":"check-image-signature","verifyImages":[{"imageReferences":["ghcr.io/*/target-api*"],"mutateDigest":false,"verifyDigest":false,"required":false,"attestors":[{"count":1,"entries":[{"keyless":{"subject":"https://github.com/ArifStephane/devsecops-mini-lab/.github/workflows/pipeline.yml@refs/heads/main","issuer":"https://token.actions.githubusercontent.com","rekor":{"url":"https://rekor.sigstore.dev"}}}]}]}]}]}}' \
+    2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Étape 4 : Export des résultats

@@ -1,0 +1,12 @@
+{
+  "scenario": "B",
+  "timestamp": "2026-06-16T13:38:58Z",
+  "image": "ghcr.io/arifstephane/devsecops-mini-lab/target-api:unsigned-1781617119",
+  "signature_status": "UNSIGNED",
+  "admission": {
+    "duration_ms": 743,
+    "status": "REJECTED",
+    "reject_reason": "error when creating \"/tmp/pod-unsigned.yaml\": admission webhook \"validate.kyverno.svc-fail\" denied the request: \n"
+  },
+  "hypothesis": "H3"
+}

@@ -17,11 +17,14 @@ source "$(dirname "$0")/../../scripts/lib/kpi-utils.sh"
 
 SCENARIO="E"
 NAMESPACE="app"
-RESULTS_FILE="../../scripts/results/scenario-e-$(date +%Y%m%d-%H%M%S).json"
+RESULTS_FILE="${RESULTS_DIR}/scenario-e-$(date +%Y%m%d-%H%M%S).json"
 
 log_scenario "=== SCÉNARIO E : Configuration insecure (T1611) ==="
 
-declare -A RESULTS
+# Variables de résultats (bash 3.2 compatible — pas de declare -A)
+E1_STATUS="UNKNOWN"; E1_DURATION=0
+E2_STATUS="UNKNOWN"; E2_DURATION=0
+E3_STATUS="UNKNOWN"; E3_DURATION=0
 
 # ---------------------------------------------------------------------------
 # Fonction générique de test d'admission
@@ -32,18 +35,20 @@ test_admission() {
     local description="$3"
 
     log_step "[${name}] Test : ${description}"
-    T_START=$(date +%s%3N)
+    local T_START T_END DURATION RESULT
+    T_START=$(date_ms)
     RESULT=$(kubectl apply -f "${manifest_file}" -n "${NAMESPACE}" 2>&1 || true)
-    T_END=$(date +%s%3N)
+    T_END=$(date_ms)
     DURATION=$(( T_END - T_START ))
 
-    if echo "${RESULT}" | grep -qiE "blocked|denied|policy|admission"; then
+    if echo "${RESULT}" | grep -qiE "blocked|denied|policy|admission|webhook"; then
         log_ok "✓ [${name}] REJETÉ par Kyverno en ${DURATION} ms"
-        RESULTS["${name}"]="REJECTED:${DURATION}"
+        eval "${name}_STATUS=REJECTED"
+        eval "${name}_DURATION=${DURATION}"
     else
         log_err "✗ [${name}] AUTORISÉ (inattendu) — ${RESULT}"
-        RESULTS["${name}"]="ALLOWED:${DURATION}"
-        # Nettoyage immédiat si le pod a été créé
+        eval "${name}_STATUS=ALLOWED"
+        eval "${name}_DURATION=${DURATION}"
         kubectl delete -f "${manifest_file}" -n "${NAMESPACE}" --force 2>/dev/null || true
     fi
 }
@@ -127,15 +132,12 @@ test_admission "E3" "/tmp/pod-dockersock.yaml" "montage /var/run/docker.sock"
 # ---------------------------------------------------------------------------
 mkdir -p "$(dirname "${RESULTS_FILE}")"
 
-E1_STATUS=$(echo "${RESULTS[E1]}" | cut -d: -f1)
-E1_DURATION=$(echo "${RESULTS[E1]}" | cut -d: -f2)
-E2_STATUS=$(echo "${RESULTS[E2]}" | cut -d: -f1)
-E2_DURATION=$(echo "${RESULTS[E2]}" | cut -d: -f2)
-E3_STATUS=$(echo "${RESULTS[E3]}" | cut -d: -f1)
-E3_DURATION=$(echo "${RESULTS[E3]}" | cut -d: -f2)
-
 ALL_REJECTED=false
-[ "${E1_STATUS}" = "REJECTED" ] && [ "${E2_STATUS}" = "REJECTED" ] && [ "${E3_STATUS}" = "REJECTED" ] && ALL_REJECTED=true
+if [ "${E1_STATUS}" = "REJECTED" ] && \
+   [ "${E2_STATUS}" = "REJECTED" ] && \
+   [ "${E3_STATUS}" = "REJECTED" ]; then
+    ALL_REJECTED=true
+fi
 
 cat > "${RESULTS_FILE}" <<EOF
 {

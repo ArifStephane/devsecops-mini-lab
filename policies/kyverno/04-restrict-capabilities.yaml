@@ -46,6 +46,14 @@ spec:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - monitoring
+                - falco
+                - kyverno
       validate:
         message: "Les capabilities suivantes sont interdites : SYS_ADMIN, SYS_PTRACE, NET_ADMIN, NET_RAW, SYS_MODULE."
         deny:

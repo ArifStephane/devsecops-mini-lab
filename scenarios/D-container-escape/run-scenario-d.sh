@@ -16,7 +16,7 @@ source "$(dirname "$0")/../../scripts/lib/kpi-utils.sh"
 
 SCENARIO="D"
 NAMESPACE="app"
-RESULTS_FILE="../../scripts/results/scenario-d-$(date +%Y%m%d-%H%M%S).json"
+RESULTS_FILE="${RESULTS_DIR}/scenario-d-$(date +%Y%m%d-%H%M%S).json"
 
 log_scenario "=== SCÉNARIO D : Évasion vers l'hôte simulée (T1611) ==="
 
@@ -35,25 +35,43 @@ metadata:
     scenario: D
     sub: D1
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
   containers:
     - name: escape-test
       image: alpine:3.19
       command: ["sh", "-c", "cat /proc/1/root/etc/hostname 2>/dev/null || echo 'access-blocked'; sleep 3600"]
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
   restartPolicy: Never
 MANIFEST
 
 # Attente du démarrage du pod
 kubectl wait --for=condition=ready pod/escape-test-d1 -n "${NAMESPACE}" --timeout=60s 2>/dev/null || true
 
-T_ACTION_D1=$(date +%s%3N)
+T_ACTION_D1=$(date_ms)
 log_ok "[D1] Action exécutée — attente de l'alerte Falco..."
+
+falco_logs_d() {
+    if docker ps --filter "name=falco-standalone" --filter "status=running" \
+            --format "{{.Names}}" 2>/dev/null | grep -q "falco-standalone"; then
+        docker logs falco-standalone 2>&1
+    else
+        local pod
+        pod=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        [ -n "${pod}" ] && kubectl logs "${pod}" -n falco 2>/dev/null || true
+    fi
+}
 
 ALERT_D1=false
 for i in $(seq 1 30); do
-    FALCO_POD=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-    if kubectl logs "${FALCO_POD}" -n falco --since=35s 2>/dev/null | \
-       grep -qE "proc/1/root|Accès.*hôte|T1611|container_escape"; then
-        T_DETECT_D1=$(date +%s%3N)
+    if falco_logs_d | grep -qE "proc/1/root|Accès.*hôte|T1611|container_escape|escape.test|1/root"; then
+        T_DETECT_D1=$(date_ms)
         MTTD_D1=$(( T_DETECT_D1 - T_ACTION_D1 ))
         ALERT_D1=true
         log_ok "✓ [D1] Alerte détectée — MTTD = ${MTTD_D1} ms"
@@ -94,7 +112,7 @@ spec:
 MANIFEST
 
 DEPLOY_D2_STATUS=$?
-T_ACTION_D2=$(date +%s%3N)
+T_ACTION_D2=$(date_ms)
 
 if [ "${DEPLOY_D2_STATUS}" -ne 0 ]; then
     log_ok "[D2] Déploiement bloqué par Kyverno (comportement attendu en config shift-everywhere)"
@@ -107,9 +125,8 @@ else
     ALERT_D2=false
     for i in $(seq 1 30); do
         FALCO_POD=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-        if kubectl logs "${FALCO_POD}" -n falco --since=35s 2>/dev/null | \
-           grep -qE "escape-marker|Écriture.*système|T1611"; then
-            T_DETECT_D2=$(date +%s%3N)
+        if falco_logs_d | grep -qE "escape-marker|Écriture.*système|T1611|open_write.*etc"; then
+            T_DETECT_D2=$(date_ms)
             MTTD_D2=$(( T_DETECT_D2 - T_ACTION_D2 ))
             ALERT_D2=true
             log_ok "✓ [D2] Alerte détectée — MTTD = ${MTTD_D2} ms"

@@ -2,9 +2,12 @@
 # falco-values.yaml — Configuration Helm de Falco pour le mini-lab
 # =============================================================================
 
-# Activation du driver eBPF moderne (recommandé pour k3d)
+# modern_ebpf : probe CO-RE pré-compilé intégré à Falco, pas de compilation
+# ni de headers kernel nécessaires — compatible Docker Desktop / linuxkit >= 5.8
 driver:
   kind: modern_ebpf
+  loader:
+    enabled: false  # désactive falco-driver-loader (init container inutile avec CO-RE)
 
 # Activation de Falcosidekick pour le routage des alertes
 falcosidekick:

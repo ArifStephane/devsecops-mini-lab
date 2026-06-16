@@ -6,37 +6,69 @@
 # Chaque règle est annotée avec la technique MITRE ATT&CK for Containers.
 #
 # Hypothèse testée : H2
+#
+# Note sur le matching de container.name en environnement k3d :
+# Falco standalone hors k3d voit les noms containerd complets du style
+# "k8s_postgres_postgres-xxx_app_uid_0". Les macros utilisent donc
+# container.name contains "..." plutôt qu'une comparaison exacte.
 # =============================================================================
 
-- list: lab_app_containers
-  items: [target-api, postgres]
-
-- list: allowed_admin_binaries
-  items: [kubectl, helm, k3d]
+- macro: lab_app_container
+  condition: >
+    (container.name contains "target-api" or
+     container.name contains "postgres" or
+     container.name contains "k8s_target" or
+     container.name contains "k8s_postgres")
 
 # ---------------------------------------------------------------------------
-# Règle 1 : Shell interactif dans un conteneur applicatif
-# Scénario C — MITRE T1609 Container Administration Command
+# Règle 0 : Détection large — shell dans n'importe quel conteneur k8s
+# (fallback si container.name ne matche pas lab_app_container en k3d)
 # ---------------------------------------------------------------------------
-- rule: Lab - Shell interactif dans conteneur applicatif
+- rule: Lab - Shell dans conteneur Kubernetes (large)
   desc: >
-    Détecte l'ouverture d'un shell interactif (bash, sh, zsh, ash) dans
-    un conteneur de l'application cible. Ce comportement est typique d'une
-    intrusion ou d'un accès non autorisé via kubectl exec.
+    Règle de détection large : tout shell spawné dans un conteneur
+    (quelconque). Ne filtre pas sur k8s.ns.name car Falco standalone
+    sans accès à l'API k8s retourne toujours k8s.ns.name="" — le filtre
+    empêcherait la détection. Les conteneurs système (falco, pause) sont
+    exclus via container.name.
   condition: >
     spawned_process and
     container and
-    container.name in (lab_app_containers) and
     proc.name in (shell_binaries) and
-    proc.tty != 0 and
-    not proc.pname in (known_shell_spawn_binaries)
+    not container.name contains "falco" and
+    not container.name contains "trivy" and
+    not container.name contains "pause" and
+    not container.name contains "kyverno"
   output: >
-    Shell interactif détecté dans conteneur applicatif
-    (proc=%proc.name pid=%proc.pid user=%user.name container=%container.name
-     image=%container.image.repository:%container.image.tag
-     cmd=%proc.cmdline tty=%proc.tty)
+    Shell spawné dans conteneur
+    (proc=%proc.name pid=%proc.pid tty=%proc.tty user=%user.name
+     container=%container.name ns=%k8s.ns.name pod=%k8s.pod.name
+     cmd=%proc.cmdline image=%container.image.repository)
+  priority: WARNING
+  tags: [lab, mitre_execution, T1609, container_exec]
+
+# ---------------------------------------------------------------------------
+# Règle 1 : Exécution d'un shell depuis un conteneur applicatif
+# Scénario C — MITRE T1609 Container Administration Command
+# ---------------------------------------------------------------------------
+- rule: Lab - Shell exécuté dans conteneur applicatif
+  desc: >
+    Détecte l'invocation de bash, sh, ash ou zsh dans un conteneur de
+    l'application cible, qu'il soit interactif (TTY) ou non interactif
+    (kubectl exec -c -- bash -c "cmd"). Indicateur d'accès non autorisé
+    ou de compromission via kubectl exec.
+  condition: >
+    spawned_process and
+    container and
+    lab_app_container and
+    proc.name in (shell_binaries)
+  output: >
+    Shell exécuté dans conteneur applicatif
+    (proc=%proc.name pid=%proc.pid tty=%proc.tty user=%user.name
+     container=%container.name cmd=%proc.cmdline
+     image=%container.image.repository:%container.image.tag)
   priority: CRITICAL
-  tags: [lab, mitre_execution, T1609, container_escape]
+  tags: [lab, mitre_execution, T1609, container_exec]
 
 # ---------------------------------------------------------------------------
 # Règle 2 : Tentative d'accès à /proc de l'hôte depuis un conteneur
@@ -65,12 +97,11 @@
 - rule: Lab - Écriture dans répertoire système hôte
   desc: >
     Détecte une tentative d'écriture dans /etc, /bin, /usr ou /lib
-    depuis un conteneur de l'application, qui pourrait indiquer une
-    tentative de persistance ou d'altération du système hôte.
+    depuis un conteneur de l'application cible.
   condition: >
     open_write and
     container and
-    container.name in (lab_app_containers) and
+    lab_app_container and
     (fd.name startswith /etc or
      fd.name startswith /bin or
      fd.name startswith /usr or
@@ -90,8 +121,7 @@
 - rule: Lab - Invocation de Docker/containerd depuis conteneur
   desc: >
     Détecte l'invocation des binaires Docker ou containerd depuis l'intérieur
-    d'un conteneur, indicateur potentiel d'une compromission permettant
-    le déploiement d'un conteneur supplémentaire (T1610).
+    d'un conteneur, indicateur potentiel de compromission.
   condition: >
     spawned_process and
     container and
@@ -116,9 +146,9 @@
   condition: >
     outbound and
     container and
-    container.name = "target-api" and
-    not (fd.sport in (5432, 8000)) and
-    not fd.sip.name in (rfc_1918_addresses) and
+    (container.name contains "target-api") and
+    not fd.sport in (5432, 8000, 53) and
+    not fd.sip in (127.0.0.1) and
     fd.typechar = 4
   output: >
     Connexion réseau sortante suspecte depuis l'application cible

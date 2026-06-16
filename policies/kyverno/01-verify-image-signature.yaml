@@ -5,6 +5,9 @@
 # Hypothèse testée : H3
 # Scénario couvert : B (image non signée)
 # MITRE ATT&CK    : T1195 — Supply Chain Compromise
+#
+# Mode initial : Audit (pour déploiement local sans signature)
+# Passer en Enforce pour le scénario B : voir scripts/scenarios/B-*/run-scenario-b.sh
 # =============================================================================
 
 apiVersion: kyverno.io/v1
@@ -21,7 +24,7 @@ metadata:
       soit vérifiable via Sigstore Rekor. Les images non signées
       ou dont la signature est invalide sont rejetées à l'admission.
 spec:
-  validationFailureAction: Enforce
+  validationFailureAction: Audit
   background: true
   rules:
     - name: check-image-signature
@@ -43,6 +46,6 @@ spec:
                     issuer: "https://token.actions.githubusercontent.com"
                     rekor:
                       url: "https://rekor.sigstore.dev"
-          mutateDigest: true
-          verifyDigest: true
-          required: true
+          mutateDigest: false
+          verifyDigest: false
+          required: false

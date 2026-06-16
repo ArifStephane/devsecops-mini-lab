@@ -1,0 +1,19 @@
+{
+  "scenario": "A",
+  "timestamp": "2026-06-16T13:13:46Z",
+  "image": "target-api:vulnerable-log4shell",
+  "cve_tested": "CVE-2021-44228",
+  "cvss_score": 10.0,
+  "trivy_scan": {
+    "duration_ms": 134443,
+    "vulnerabilities_critical": 2,
+    "vulnerabilities_high": 4,
+    "log4shell_detected": true,
+    "detection_status": "DETECTED"
+  },
+  "admission": {
+    "duration_ms": 205,
+    "status": "ALLOWED"
+  },
+  "hypothesis": "H1"
+}

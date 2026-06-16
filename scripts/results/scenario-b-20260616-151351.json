@@ -1,0 +1,12 @@
+{
+  "scenario": "B",
+  "timestamp": "2026-06-16T13:14:11Z",
+  "image": "ghcr.io/arifstephane/devsecops-mini-lab/target-api:unsigned-1781615631",
+  "signature_status": "UNSIGNED",
+  "admission": {
+    "duration_ms": 741,
+    "status": "REJECTED",
+    "reject_reason": "Warning: policy verify-image-signature.check-image-signature: failed to verify image ghcr.io/arifstephane/devsecops-mini-lab/target-api:unsigned-1781615631: .attestors[0].entries[0].keyless: GET https://ghcr.io/token?scope=repository%3Aarifstephane%2Fdevsecops-mini-lab%2Ftarget-api%3Apull&service=ghcr.io: DENIED: requested access to the resource is denied\nError from server: error when creating \"/tmp/pod-unsigned.yaml\": admission webhook \"validate.kyverno.svc-fail\" denied the request: \n\nresource Pod/app/test-unsigned-image was blocked due to the following policies \n\ndeny-root-containers:\n  check-runAsNonRoot: 'validation error: Les conteneurs doivent s''exécuter en tant\n    qu''utilisateur non-root (runAsNonRoot: true ou runAsUser > 0). rule check-runAsNonRoot[0]\n    failed at path /spec/securityContext/runAsNonRoot/ rule check-runAsNonRoot[1]\n    failed at path /spec/containers/0/securityContext/ rule check-runAsNonRoot[2]\n    failed at path /spec/securityContext/runAsUser/'\nrestrict-capabilities:\n  require-drop-all: 'validation error: Tous les conteneurs doivent supprimer toutes\n    les capabilities (capabilities.drop: [ALL]). rule require-drop-all failed at path\n    /spec/containers/0/securityContext/'\n"
+  },
+  "hypothesis": "H3"
+}

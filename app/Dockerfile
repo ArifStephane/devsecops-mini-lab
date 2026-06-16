@@ -31,8 +31,8 @@ WORKDIR /app
 # Copie des dépendances compilées depuis le builder
 COPY --from=builder /install /usr/local
 
-# Copie du code applicatif
-COPY main.py .
+# Copie du code applicatif (chown requis : USER appuser déclaré après WORKDIR)
+COPY --chown=appuser:appgroup main.py .
 
 # Passage à l'utilisateur non-root
 USER appuser

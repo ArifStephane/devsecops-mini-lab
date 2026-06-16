@@ -1,0 +1,17 @@
+{
+  "scenario": "D",
+  "timestamp": "2026-06-16T13:39:15Z",
+  "mitre_technique": "T1611",
+  "sub_scenarios": {
+    "D1_proc_access": {
+      "alert_detected": true,
+      "mttd_ms": 259
+    },
+    "D2_filesystem_write": {
+      "blocked_by_admission": false,
+      "alert_detected": true,
+      "mttd_ms": 502
+    }
+  },
+  "hypothesis": "H2"
+}

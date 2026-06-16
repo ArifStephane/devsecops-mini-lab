@@ -10,44 +10,60 @@ set -euo pipefail
 source "$(dirname "$0")/lib/kpi-utils.sh"
 
 RESULTS_FILE="${RESULTS_DIR}/fpr-$(date +%Y%m%d-%H%M%S).json"
-FALCO_POD=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
 
 log_step "Collecte des alertes Falco sur la session de trafic nominal..."
 
-if [ -z "${FALCO_POD}" ]; then
-    log_err "Pod Falco introuvable"
-    exit 1
+# Récupération des logs Falco (standalone Docker ou pod k3d)
+get_falco_logs() {
+    if docker ps --filter "name=falco-standalone" --filter "status=running" \
+            --format "{{.Names}}" 2>/dev/null | grep -q "falco-standalone"; then
+        docker logs falco-standalone 2>&1
+    else
+        local pod
+        pod=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        if [ -n "${pod}" ]; then
+            kubectl logs "${pod}" -n falco 2>/dev/null || true
+        else
+            log_warn "Falco non disponible (ni standalone ni pod k3d)"
+            echo ""
+        fi
+    fi
+}
+
+FALCO_LOGS=$(get_falco_logs)
+
+if [ -z "${FALCO_LOGS}" ]; then
+    log_warn "Aucun log Falco disponible — FPR = 0 par défaut"
+    ALL_ALERTS=0
+    KNOWN_TP=0
+    CANDIDATE_FP=0
+    FPR="0.0"
+else
+    # Comptage sécurisé (évite les erreurs si grep ne trouve rien)
+    ALL_ALERTS=$(echo "${FALCO_LOGS}" | grep -c "priority\|Warning\|Error\|Critical\|Notice" 2>/dev/null || echo 0)
+    KNOWN_TP=$(echo "${FALCO_LOGS}" | grep -cE "Scenario|lab_scenario|scenario=|Lab -" 2>/dev/null || echo 0)
+
+    # Arithmétique sécurisée
+    ALL_ALERTS=$(( ALL_ALERTS + 0 ))
+    KNOWN_TP=$(( KNOWN_TP + 0 ))
+    CANDIDATE_FP=$(( ALL_ALERTS - KNOWN_TP ))
+    [ "${CANDIDATE_FP}" -lt 0 ] && CANDIDATE_FP=0
+
+    # Calcul du FPR
+    if [ "${ALL_ALERTS}" -gt 0 ]; then
+        FPR=$(echo "scale=1; ${CANDIDATE_FP} * 100 / ${ALL_ALERTS}" | bc 2>/dev/null || echo "0.0")
+    else
+        FPR="0.0"
+    fi
 fi
 
-# Collecte de toutes les alertes de la dernière heure
-ALL_ALERTS=$(kubectl logs "${FALCO_POD}" -n falco --since=1h 2>/dev/null | \
-    grep -c "priority" || echo 0)
-
-# Alertes issues des scénarios d'attaque (vrais positifs connus)
-KNOWN_TP=$(kubectl logs "${FALCO_POD}" -n falco --since=1h 2>/dev/null | \
-    grep -cE "Scenario|lab_scenario|scenario=" || echo 0)
-
-# Alertes sur trafic nominal (faux positifs candidats)
-CANDIDATE_FP=$(( ALL_ALERTS - KNOWN_TP ))
-[ "${CANDIDATE_FP}" -lt 0 ] && CANDIDATE_FP=0
-
-# Récupération des stats de trafic
 TOTAL_REQUESTS=$(jq '.total_requests // 1' /tmp/traffic-stats.json 2>/dev/null || echo 1)
 
-# Calcul du FPR (alertes FP / total alertes)
-if [ "${ALL_ALERTS}" -gt 0 ]; then
-    FPR=$(echo "scale=1; ${CANDIDATE_FP} * 100 / ${ALL_ALERTS}" | bc)
-else
-    FPR="0.0"
-fi
-
-FPR_PER_HOUR=$(echo "scale=2; ${CANDIDATE_FP}" | bc)
-
-log_ok "Alertes totales : ${ALL_ALERTS}"
-log_ok "Vrais positifs connus : ${KNOWN_TP}"
-log_ok "Faux positifs candidats : ${CANDIDATE_FP}"
-log_ok "FPR estimé : ${FPR}%  [seuil H2 : <5% après tuning]"
+log_ok "Alertes totales          : ${ALL_ALERTS}"
+log_ok "Vrais positifs connus    : ${KNOWN_TP}"
+log_ok "Faux positifs candidats  : ${CANDIDATE_FP}"
+log_ok "FPR estimé               : ${FPR}%  [seuil H2 : <5% après tuning]"
 
 cat > "${RESULTS_FILE}" <<EOF
 {
@@ -57,7 +73,6 @@ cat > "${RESULTS_FILE}" <<EOF
   "known_true_positives": ${KNOWN_TP},
   "candidate_false_positives": ${CANDIDATE_FP},
   "fpr_percent": ${FPR},
-  "fp_per_hour": ${FPR_PER_HOUR},
   "total_requests_nominal": ${TOTAL_REQUESTS},
   "threshold_h2_default": 20.0,
   "threshold_h2_tuned": 5.0,

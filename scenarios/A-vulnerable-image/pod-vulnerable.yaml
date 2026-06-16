@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vulnerable-app
+  namespace: app
+  labels:
+    scenario: A
+    risk: critical
+spec:
+  containers:
+    - name: vulnerable-container
+      image: target-api:vulnerable-log4shell
+      command: ["sh", "-c", "sleep 3600"]
+      # Pas de securityContext volontairement pour déclencher les politiques Kyverno :
+      # - deny-root-containers (runAsNonRoot absent)
+      # - restrict-capabilities (capabilities.drop: ALL absent)
+  restartPolicy: Never

@@ -16,8 +16,9 @@ set -euo pipefail
 source "$(dirname "$0")/../../scripts/lib/kpi-utils.sh"
 
 SCENARIO="A"
+SCENARIO_DIR="$(cd "$(dirname "$0")" && pwd)"
 IMAGE_NAME="target-api:vulnerable-log4shell"
-RESULTS_FILE="../../scripts/results/scenario-a-$(date +%Y%m%d-%H%M%S).json"
+RESULTS_FILE="${RESULTS_DIR}/scenario-a-$(date +%Y%m%d-%H%M%S).json"
 
 log_scenario "=== SCÉNARIO A : Image vulnérable (CVE-2021-44228) ==="
 
@@ -25,16 +26,17 @@ log_scenario "=== SCÉNARIO A : Image vulnérable (CVE-2021-44228) ==="
 # Étape 1 : Build de l'image vulnérable
 # ---------------------------------------------------------------------------
 log_step "Build de l'image vulnérable..."
-T_BUILD_START=$(date +%s%3N)
+T_BUILD_START=$(date_ms)
+cd "${SCENARIO_DIR}"
 docker build -f Dockerfile.vulnerable -t "${IMAGE_NAME}" . 2>&1
-T_BUILD_END=$(date +%s%3N)
+T_BUILD_END=$(date_ms)
 log_ok "Image construite en $(( T_BUILD_END - T_BUILD_START )) ms"
 
 # ---------------------------------------------------------------------------
 # Étape 2 : Scan Trivy
 # ---------------------------------------------------------------------------
 log_step "Scan Trivy de l'image..."
-T_SCAN_START=$(date +%s%3N)
+T_SCAN_START=$(date_ms)
 
 trivy image \
     --format json \
@@ -42,7 +44,7 @@ trivy image \
     --output /tmp/trivy-scenario-a.json \
     "${IMAGE_NAME}" || true  # Ne pas échouer, capturer le résultat
 
-T_SCAN_END=$(date +%s%3N)
+T_SCAN_END=$(date_ms)
 SCAN_DURATION=$(( T_SCAN_END - T_SCAN_START ))
 
 # Extraction des KPI depuis le résultat Trivy
@@ -73,9 +75,9 @@ log_step "Tentative de déploiement dans le cluster..."
 k3d image import "${IMAGE_NAME}" -c devsecops-lab
 
 # Application du manifest de déploiement vulnérable
-T_ADMIT_START=$(date +%s%3N)
-ADMIT_RESULT=$(kubectl apply -f pod-vulnerable.yaml --namespace app 2>&1 || true)
-T_ADMIT_END=$(date +%s%3N)
+T_ADMIT_START=$(date_ms)
+ADMIT_RESULT=$(kubectl apply -f "${SCENARIO_DIR}/pod-vulnerable.yaml" --namespace app 2>&1 || true)
+T_ADMIT_END=$(date_ms)
 ADMIT_DURATION=$(( T_ADMIT_END - T_ADMIT_START ))
 
 if echo "${ADMIT_RESULT}" | grep -q "blocked by policy"; then

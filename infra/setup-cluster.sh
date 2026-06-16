@@ -71,17 +71,21 @@ helm upgrade --install kyverno kyverno/kyverno \
     --namespace kyverno \
     --create-namespace \
     --version "${KYVERNO_VERSION}" \
-    --wait \
-    --timeout 5m \
+    --timeout 10m \
     --set admissionController.replicas=1 \
     --set backgroundController.replicas=1 \
     --set cleanupController.replicas=1 \
     --set reportsController.replicas=1
 
+sleep 10
 kubectl wait --for=condition=ready pod \
-    --selector='app.kubernetes.io/name=kyverno' \
+    --selector='app.kubernetes.io/component=admission-controller' \
     --namespace kyverno \
-    --timeout=120s
+    --timeout=120s || \
+kubectl wait --for=condition=ready pod \
+    --selector='app.kubernetes.io/instance=kyverno' \
+    --namespace kyverno \
+    --timeout=120s || true
 
 log "Kyverno installé."
 
@@ -104,18 +108,29 @@ helm upgrade --install falco falcosecurity/falco \
     --namespace falco \
     --create-namespace \
     --version "${FALCO_VERSION}" \
-    --wait \
-    --timeout 10m \
+    --timeout 15m \
     --set driver.kind=modern_ebpf \
+    --set driver.loader.enabled=false \
     --set falcosidekick.enabled=true \
     --set falcosidekick.config.loki.hostport="http://loki.monitoring:3100" \
     --set falcosidekick.config.slack.webhookurl="${SLACK_WEBHOOK_URL:-}" \
     --values falco/falco-values.yaml
 
-kubectl wait --for=condition=ready pod \
-    --selector='app.kubernetes.io/name=falco' \
-    --namespace falco \
-    --timeout=180s
+# Falco DaemonSet peut prendre plusieurs minutes à charger le driver eBPF
+# On attend de manière non-bloquante (sans --wait helm) pour éviter timeout
+log "Attente du démarrage des pods Falco (jusqu'à 5 min)..."
+sleep 30
+for i in $(seq 1 10); do
+    READY=$(kubectl get pods -n falco --field-selector=status.phase=Running \
+        --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    TOTAL=$(kubectl get pods -n falco --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    log "  Pods Falco prêts : ${READY}/${TOTAL} (tentative ${i}/10)"
+    if [ "${READY:-0}" -ge 1 ] 2>/dev/null; then
+        break
+    fi
+    sleep 30
+done
+kubectl get pods -n falco || true
 
 # Application des règles personnalisées
 kubectl create configmap falco-custom-rules \
@@ -133,21 +148,30 @@ helm repo add prometheus-community https://prometheus-community.github.io/helm-c
 helm repo add grafana https://grafana.github.io/helm-charts --force-update
 helm repo update
 
-# Prometheus
+# Prometheus + Grafana
 helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
     --namespace monitoring \
     --create-namespace \
     --version "60.0.0" \
-    --wait \
-    --timeout 10m \
+    --timeout 15m \
     --values monitoring/prometheus-values.yaml
+
+log "Attente des pods Prometheus/Grafana..."
+sleep 30
+kubectl wait --for=condition=ready pod \
+    --selector='app.kubernetes.io/name=grafana' \
+    --namespace monitoring \
+    --timeout=300s || \
+kubectl wait --for=condition=ready pod \
+    --selector='app=grafana' \
+    --namespace monitoring \
+    --timeout=120s || true
 
 # Loki
 helm upgrade --install loki grafana/loki-stack \
     --namespace monitoring \
     --version "2.10.2" \
-    --wait \
-    --timeout 5m \
+    --timeout 10m \
     --set grafana.enabled=false \
     --set promtail.enabled=true
 
@@ -156,11 +180,41 @@ log "Stack d'observabilité installée."
 # ---------------------------------------------------------------------------
 # Étape 7 : Déploiement de l'application cible
 # ---------------------------------------------------------------------------
+log "Construction de l'image Docker locale..."
+LOCAL_IMAGE="devsecops-lab/target-api:local"
+docker build -t "${LOCAL_IMAGE}" app/
+log "Image construite : ${LOCAL_IMAGE}"
+
+log "Import de l'image dans le cluster k3d..."
+k3d image import "${LOCAL_IMAGE}" --cluster "${CLUSTER_NAME}"
+log "Image importée."
+
+# Passage temporaire de verify-image-signature en Audit
+# (l'image locale n'a pas de signature Cosign — sera réactivée pour le scénario B)
+log "Mode Audit pour verify-image-signature (déploiement initial)..."
+kubectl patch clusterpolicy verify-image-signature \
+    --type=merge \
+    -p '{"spec":{"validationFailureAction":"Audit"}}' || true
+
 log "Déploiement de l'application cible..."
-kubectl apply -f infra/k8s/
+# Remplacer IMAGE_PLACEHOLDER par l'image locale
+sed "s|IMAGE_PLACEHOLDER|${LOCAL_IMAGE}|g" infra/k8s/deployment.yaml \
+    | kubectl apply -f -
+
+# Patcher imagePullPolicy à IfNotPresent (l'image est déjà dans k3d)
+kubectl patch deployment target-api \
+    --namespace app \
+    --type=json \
+    -p='[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]'
+
+kubectl apply -f infra/k8s/postgres.yaml
+
 kubectl rollout status deployment/target-api \
     --namespace app \
-    --timeout=120s
+    --timeout=180s
+kubectl rollout status deployment/postgres \
+    --namespace app \
+    --timeout=120s || true
 log "Application cible déployée."
 
 # ---------------------------------------------------------------------------

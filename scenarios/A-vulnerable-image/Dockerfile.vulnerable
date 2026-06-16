@@ -18,15 +18,13 @@ LABEL lab.cvss="10.0"
 
 WORKDIR /app
 
-# Téléchargement de log4j-core 2.14.1 (version affectée par Log4Shell)
-# Cette version est disponible dans les archives Maven Central
+# Téléchargement de log4j-core 2.14.1 (version affectée par Log4Shell, CVSS 10.0)
 ADD https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-core/2.14.1/log4j-core-2.14.1.jar \
     /app/log4j-core-2.14.1.jar
 
 ADD https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-api/2.14.1/log4j-api-2.14.1.jar \
     /app/log4j-api-2.14.1.jar
 
-# Application stub (démonstration uniquement — pas de code Log4Shell réel)
-COPY app-stub.jar /app/app.jar
-
-ENTRYPOINT ["java", "-cp", "/app/*", "com.example.AppStub"]
+# Pas de code applicatif réel — l'image sert uniquement à exposer les JARs
+# vulnérables à la détection Trivy. Le conteneur reste en veille.
+CMD ["sh", "-c", "echo 'Lab scenario A — CVE-2021-44228 présent dans /app/' && sleep infinity"]

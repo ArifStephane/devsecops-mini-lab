@@ -1,0 +1,51 @@
+{
+  "report_metadata": {
+    "configuration": "shift-everywhere",
+    "generated_at": "2026-06-16T07:59:23Z",
+    "operator": "mini-lab v1.0"
+  },
+  "kpi": {
+    "tpr_detection_rate": {
+      "value": 20.0,
+      "unit": "%",
+      "scenarios_detected": 1,
+      "scenarios_total": 5,
+      "threshold_h1": 80.0,
+      "h1_validated": false
+    },
+    "mttd_mean": {
+      "value_ms": -1,
+      "value_seconds": null,
+      "unit": "ms",
+      "sla_seconds": 5
+    },
+    "pipeline_overhead": {
+      "value": null,
+      "unit": "%",
+      "baseline_seconds": null,
+      "secured_seconds": null,
+      "threshold_h1": 15.0
+    },
+    "mitre_coverage": {
+      "value": 77.7,
+      "unit": "%",
+      "techniques_covered": [
+  "T1190",
+  "T1195",
+  "T1609",
+  "T1610",
+  "T1611",
+  "T1053",
+  "T1071"
+],
+      "techniques_total": 9
+    }
+  },
+  "scenario_results": {
+    "A": {"scenario": "a", "error": "no_results_found"},
+    "B": {"scenario": "b", "error": "no_results_found"},
+    "C": {"scenario": "c", "error": "no_results_found"},
+    "D": {"scenario": "d", "error": "no_results_found"},
+    "E": {"scenario": "e", "error": "no_results_found"}
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "metric": "false_positive_rate",
+  "timestamp": "2026-06-16T13:15:17Z",
+  "falco_alerts_total": 1,
+  "known_true_positives": 1,
+  "candidate_false_positives": 0,
+  "fpr_percent": 0,
+  "total_requests_nominal": 0,
+  "threshold_h2_default": 20.0,
+  "threshold_h2_tuned": 5.0,
+  "note": "Mesure sur trafic nominal de laboratoire — voir limites méthodologiques Partie V"
+}

@@ -31,31 +31,34 @@ sleep 10  # Laisser le trafic s'établir avant les scénarios
 # ---------------------------------------------------------------------------
 # Exécution des scénarios
 # ---------------------------------------------------------------------------
-SCENARIOS=("A" "B" "C" "D" "E")
-declare -A SCENARIO_STATUS
+SCENARIOS="A B C D E"
+STATUS_A="PENDING"; STATUS_B="PENDING"; STATUS_C="PENDING"
+STATUS_D="PENDING"; STATUS_E="PENDING"
 
-for S in "${SCENARIOS[@]}"; do
+for S in ${SCENARIOS}; do
     log_step "--- Scénario ${S} ---"
-    SCRIPT="${LAB_ROOT}/scenarios"
 
     case "${S}" in
-        A) SCRIPT="${SCRIPT}/A-vulnerable-image/run-scenario-a.sh" ;;
-        B) SCRIPT="${SCRIPT}/B-unsigned-image/run-scenario-b.sh" ;;
-        C) SCRIPT="${SCRIPT}/C-shell-exec/run-scenario-c.sh" ;;
-        D) SCRIPT="${SCRIPT}/D-container-escape/run-scenario-d.sh" ;;
-        E) SCRIPT="${SCRIPT}/E-privileged-pod/run-scenario-e.sh" ;;
+        A) SCRIPT="${LAB_ROOT}/scenarios/A-vulnerable-image/run-scenario-a.sh" ;;
+        B) SCRIPT="${LAB_ROOT}/scenarios/B-unsigned-image/run-scenario-b.sh" ;;
+        C) SCRIPT="${LAB_ROOT}/scenarios/C-shell-exec/run-scenario-c.sh" ;;
+        D) SCRIPT="${LAB_ROOT}/scenarios/D-container-escape/run-scenario-d.sh" ;;
+        E) SCRIPT="${LAB_ROOT}/scenarios/E-privileged-pod/run-scenario-e.sh" ;;
+        *) continue ;;
     esac
 
     if bash "${SCRIPT}" 2>&1 | tee "/tmp/scenario-${S}.log"; then
-        SCENARIO_STATUS["${S}"]="OK"
+        eval "STATUS_${S}=OK"
         log_ok "Scénario ${S} terminé"
     else
-        SCENARIO_STATUS["${S}"]="ERROR"
+        eval "STATUS_${S}=ERROR"
         log_err "Scénario ${S} en erreur — consulter /tmp/scenario-${S}.log"
     fi
 
-    sleep 5  # Pause entre scénarios pour éviter les interférences
+    sleep 5
 done
+
+log_step "Statuts : A=${STATUS_A} B=${STATUS_B} C=${STATUS_C} D=${STATUS_D} E=${STATUS_E}"
 
 # ---------------------------------------------------------------------------
 # Arrêt du générateur de trafic et mesure des faux positifs

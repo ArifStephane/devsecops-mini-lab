@@ -1,0 +1,15 @@
+{
+  "scenario": "C",
+  "timestamp": "2026-06-16T13:39:06Z",
+  "pod_targeted": "target-api-66d88556-9x6cx",
+  "mitre_technique": "T1609",
+  "action_timestamp_ms": 1781617144133,
+  "detection": {
+    "alert_detected": true,
+    "mttd_ms": 1783,
+    "mttd_seconds": 1.78,
+    "sla_met": true,
+    "loki_routing": "UNCONFIRMED"
+  },
+  "hypothesis": "H2"
+}

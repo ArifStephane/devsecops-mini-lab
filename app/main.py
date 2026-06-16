@@ -10,6 +10,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from pydantic import BaseModel
 import os
 import logging
+import time
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -40,7 +41,23 @@ class Item(Base):
     description = Column(String(1024))
 
 
-Base.metadata.create_all(bind=engine)
+def init_db(retries: int = 10, delay: int = 3) -> None:
+    """
+    Initialise le schéma de la base de données avec retry.
+    Évite un crash au démarrage si PostgreSQL n'est pas encore disponible.
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            logger.info("Schéma de base de données initialisé avec succès.")
+            return
+        except Exception as exc:
+            logger.warning(
+                f"Tentative {attempt}/{retries} — DB non disponible : {exc}"
+            )
+            if attempt < retries:
+                time.sleep(delay)
+    logger.error("Impossible de joindre la base de données après %d tentatives.", retries)
 
 
 def get_db():
@@ -78,6 +95,12 @@ app = FastAPI(
     description="Application cible utilisée pour l'expérimentation sécurité.",
     version="1.0.0",
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialise la DB au démarrage de l'application (non bloquant à l'import)."""
+    init_db()
 
 
 @app.get("/health")

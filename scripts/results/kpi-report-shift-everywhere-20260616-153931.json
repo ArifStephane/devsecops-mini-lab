@@ -1,0 +1,133 @@
+{
+  "report_metadata": {
+    "configuration": "shift-everywhere",
+    "generated_at": "2026-06-16T13:39:32Z",
+    "operator": "mini-lab v1.0"
+  },
+  "kpi": {
+    "tpr_detection_rate": {
+      "value": 100.0,
+      "unit": "%",
+      "scenarios_detected": 5,
+      "scenarios_total": 5,
+      "threshold_h1": 80.0,
+      "h1_validated": true
+    },
+    "mttd_mean": {
+      "value_ms": 1021,
+      "value_seconds": 1.02,
+      "unit": "ms",
+      "sla_seconds": 5
+    },
+    "pipeline_overhead": {
+      "value": null,
+      "unit": "%",
+      "baseline_seconds": null,
+      "secured_seconds": null,
+      "threshold_h1": 15.0
+    },
+    "mitre_coverage": {
+      "value": 77.7,
+      "unit": "%",
+      "techniques_covered": [
+  "T1190",
+  "T1195",
+  "T1609",
+  "T1610",
+  "T1611",
+  "T1053",
+  "T1071"
+],
+      "techniques_total": 9
+    }
+  },
+  "scenario_results": {
+    "A": {
+  "scenario": "A",
+  "timestamp": "2026-06-16T13:38:34Z",
+  "image": "target-api:vulnerable-log4shell",
+  "cve_tested": "CVE-2021-44228",
+  "cvss_score": 10.0,
+  "trivy_scan": {
+    "duration_ms": 1442,
+    "vulnerabilities_critical": 2,
+    "vulnerabilities_high": 4,
+    "log4shell_detected": true,
+    "detection_status": "DETECTED"
+  },
+  "admission": {
+    "duration_ms": 336,
+    "status": "ALLOWED"
+  },
+  "hypothesis": "H1"
+},
+    "B": {
+  "scenario": "B",
+  "timestamp": "2026-06-16T13:38:58Z",
+  "image": "ghcr.io/arifstephane/devsecops-mini-lab/target-api:unsigned-1781617119",
+  "signature_status": "UNSIGNED",
+  "admission": {
+    "duration_ms": 743,
+    "status": "REJECTED",
+    "reject_reason": "error when creating \"/tmp/pod-unsigned.yaml\": admission webhook \"validate.kyverno.svc-fail\" denied the request: \n"
+  },
+  "hypothesis": "H3"
+},
+    "C": {
+  "scenario": "C",
+  "timestamp": "2026-06-16T13:39:06Z",
+  "pod_targeted": "target-api-66d88556-9x6cx",
+  "mitre_technique": "T1609",
+  "action_timestamp_ms": 1781617144133,
+  "detection": {
+    "alert_detected": true,
+    "mttd_ms": 1783,
+    "mttd_seconds": 1.78,
+    "sla_met": true,
+    "loki_routing": "UNCONFIRMED"
+  },
+  "hypothesis": "H2"
+},
+    "D": {
+  "scenario": "D",
+  "timestamp": "2026-06-16T13:39:15Z",
+  "mitre_technique": "T1611",
+  "sub_scenarios": {
+    "D1_proc_access": {
+      "alert_detected": true,
+      "mttd_ms": 259
+    },
+    "D2_filesystem_write": {
+      "blocked_by_admission": false,
+      "alert_detected": true,
+      "mttd_ms": 502
+    }
+  },
+  "hypothesis": "H2"
+},
+    "E": {
+  "scenario": "E",
+  "timestamp": "2026-06-16T13:39:21Z",
+  "mitre_technique": "T1611",
+  "tests": {
+    "E1_privileged": {
+      "description": "securityContext.privileged: true",
+      "admission_status": "REJECTED",
+      "admission_duration_ms": 268
+    },
+    "E2_hostPID": {
+      "description": "hostPID: true",
+      "admission_status": "REJECTED",
+      "admission_duration_ms": 285
+    },
+    "E3_docker_sock": {
+      "description": "montage /var/run/docker.sock",
+      "admission_status": "REJECTED",
+      "admission_duration_ms": 287
+    }
+  },
+  "all_rejected": true,
+  "hypothesis": "H3"
+}
+  }
+}

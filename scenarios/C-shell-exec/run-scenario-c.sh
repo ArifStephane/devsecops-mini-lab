@@ -18,7 +18,7 @@ source "$(dirname "$0")/../../scripts/lib/kpi-utils.sh"
 
 SCENARIO="C"
 NAMESPACE="app"
-RESULTS_FILE="../../scripts/results/scenario-c-$(date +%Y%m%d-%H%M%S).json"
+RESULTS_FILE="${RESULTS_DIR}/scenario-c-$(date +%Y%m%d-%H%M%S).json"
 FALCO_ALERT_TIMEOUT=30  # secondes d'attente pour l'alerte Falco
 
 log_scenario "=== SCÉNARIO C : Shell interactif dans pod (T1609) ==="
@@ -49,13 +49,13 @@ log_ok "Timestamp de référence : ${T_REFERENCE}"
 # Étape 3 : Exécution du shell interactif (action malveillante simulée)
 # ---------------------------------------------------------------------------
 log_step "Lancement du kubectl exec (simulation d'intrusion)..."
-T_ACTION=$(date +%s%3N)
+T_ACTION=$(date_ms)
 
 # Exécution non-interactive (compatible environnement automatisé)
 # En laboratoire réel : kubectl exec -it "${POD_NAME}" -n "${NAMESPACE}" -- /bin/sh
 kubectl exec "${POD_NAME}" -n "${NAMESPACE}" -- /bin/sh -c "echo 'Scenario C - shell exec simulation'" 2>&1 || true
 
-T_ACTION_END=$(date +%s%3N)
+T_ACTION_END=$(date_ms)
 log_ok "Action exécutée (t=${T_ACTION} ms)"
 
 # ---------------------------------------------------------------------------
@@ -65,13 +65,24 @@ log_step "Attente de l'alerte Falco (timeout=${FALCO_ALERT_TIMEOUT}s)..."
 
 ALERT_DETECTED=false
 T_DETECT=""
-FALCO_POD=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco -o jsonpath='{.items[0].metadata.name}')
+
+# Falco tourne en standalone Docker hors k3d sur macOS/Docker Desktop
+falco_logs() {
+    if docker ps --filter "name=falco-standalone" --filter "status=running" \
+            --format "{{.Names}}" 2>/dev/null | grep -q "falco-standalone"; then
+        docker logs falco-standalone 2>&1
+    else
+        # Fallback : pod Falco dans k3d
+        local pod
+        pod=$(kubectl get pods -n falco -l app.kubernetes.io/name=falco \
+            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+        [ -n "${pod}" ] && kubectl logs "${pod}" -n falco 2>/dev/null || true
+    fi
+}
 
 for i in $(seq 1 "${FALCO_ALERT_TIMEOUT}"); do
-    # Recherche de l'alerte dans les logs Falco
-    if kubectl logs "${FALCO_POD}" -n falco --since="${FALCO_ALERT_TIMEOUT}s" 2>/dev/null | \
-       grep -q "Terminal shell in container\|Shell interactif"; then
-        T_DETECT=$(date +%s%3N)
+    if falco_logs | grep -qE "Shell exécuté|Shell spawné|Terminal shell|T1609|shell.*conteneur|conteneur.*shell|container_exec"; then
+        T_DETECT=$(date_ms)
         MTTD=$(( T_DETECT - T_ACTION ))
         ALERT_DETECTED=true
         log_ok "✓ ALERTE DÉTECTÉE après ${i}s — MTTD = ${MTTD} ms"
